@@ -7,8 +7,8 @@ to create an approximate right frame from a real left frame. The real left frame
 into a single left-right stereoscopic 3d image.
 
 # Usage
-Simply put any videos you wish to convert into the `input` folder, wait for the program to finish, and
-check the `output` folder for the converted videos.
+Simply put any videos you wish to convert into the `input` folder, then run `./vid3d.sh` or `python3 vid3d.py`, and
+check the `output` folder for the converted videos after the program has finished.
 
 
 # Dependencies
