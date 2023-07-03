@@ -1,0 +1,6 @@
+input/*
+!input/putyourfileshere.txt
+output/*
+!output/thisiswhereoutputgoes.txt
+__pycache__
+test-depth
