@@ -1,0 +1,5 @@
+torch>=2.0
+ffmpeg-python>=0.2
+numpy>=1.23
+cuda-python>=12.1
+cupy-cuda12x>=12.1
