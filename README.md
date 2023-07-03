@@ -12,4 +12,4 @@ check the `output` folder for the converted videos after the program has finishe
 
 
 # Dependencies
-See `requirements.txt` for `pip` dependencies.
+See `requirements.txt` for `pip` dependencies. In addition to those, you will need CUDA installed (have only tested with version 12.1) along with ffmpeg.
