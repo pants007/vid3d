@@ -1,6 +1,6 @@
 # vid3d
-Generate stereoscopic 3d videos with the power of AI!
-vid3d is a simple commandline tool for batch processing regular flat video into stereoscopic 3d video.
+Generate stereoscopic 3d videos/images with the power of AI!
+vid3d is a simple commandline tool for batch processing regular "flat" media into stereoscopic 3d media.
 
 It uses ZoeDepth (https://github.com/isl-org/ZoeDepth) to generate a depthmap, which is then used
 to create an approximate right frame from a real left frame. The real left frame and the faux right frame are then combined 
