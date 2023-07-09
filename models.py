@@ -20,6 +20,14 @@ class DepthModel:
             midas_transforms = torch.hub.load("intel-isl/MiDaS", "transforms")
             if subtype == "DPT_Large" or subtype == "DPT_Hybrid":
                 self.transform = midas_transforms.dpt_transform
+            elif subtype == "DPT_BEiT_L_512":
+                self.transform = midas_transforms.beit512_transform
+            elif subtype == "DPT_Swin_L_384":
+                self.transform = midas_transforms.swin384_transform
+            elif subtype == 'DPT_SwinV2_T_256':
+                self.transform = midas_transforms.swin256_transform
+            elif subtype == 'DPT_LeViT_224':
+                self.transform = midas_transforms.levit_transform
             else:
                 self.transform = midas_transforms.small_transform
             midas.to(self.device)

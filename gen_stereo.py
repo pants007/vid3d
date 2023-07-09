@@ -1,5 +1,4 @@
 import numpy as np
-from numba_timer import cuda_timer
 from numba import cuda
 '''
     CUDA-based stereo-image generation
@@ -11,7 +10,7 @@ from numba import cuda
 
 
 @cuda.jit
-def fix_right(right_img, deviation, output_img):
+def fix_holes(right_img, deviation, output_img):
     h, w, c = right_img.shape
     idy, idx = cuda.grid(2)
     if idy < h and idx < w:
@@ -73,7 +72,7 @@ def fix_right(right_img, deviation, output_img):
         output_img[idy, idx, 2] = b
 
 
-def run_fix_right(img, right_cu, deviation):
+def run_fix_holes(img, right_cu, deviation):
     h, w, c = img.shape
     output_img = np.zeros_like(img)
     output_img_cu = cuda.to_device(output_img)
@@ -81,12 +80,8 @@ def run_fix_right(img, right_cu, deviation):
     blockspergrid_x = np.ceil(h / threadsperblock[0]).astype(np.int32)
     blockspergrid_y = np.ceil(w / threadsperblock[1]).astype(np.int32)
     blockspergrid = (blockspergrid_x, blockspergrid_y)
-    timer = cuda_timer.Timer()
-    timer.start()
-    fix_right[blockspergrid, threadsperblock](
+    fix_holes[blockspergrid, threadsperblock](
         right_cu, deviation, output_img_cu)
-    timer.stop()
-    # print(f'Time spent in fix_right: {timer.elapsed()}')
     return output_img_cu
 
 
@@ -111,14 +106,10 @@ def run_shift_pass_row_wise(left_img, depth, deviation):
     h, w, c = left_img.shape
     deviation = (deviation / 100) * left_img.shape[1]
     right_cu = cuda.to_device(np.zeros_like(left_img, dtype=left_img.dtype))
-    block_size = 16
-    grid_size = (h + block_size - 1) // block_size
-    timer = cuda_timer.Timer()
-    timer.start()
+    block_size = 1
+    grid_size = h
     shift_pass_row_wise[grid_size, block_size](
         img_cu, depth_cu, deviation, right_cu)
-    timer.stop()
-    # print(f'Time spent in shift_pass_correct: {timer.elapsed()}')
     return right_cu
 
 
@@ -134,11 +125,11 @@ def shift_pass_element_wise(left_img, depth, deviation, right_img, locks, max_de
             lock = 0
             while lock != 1:
                 lock = cuda.atomic.compare_and_swap(locks[row, col_r], 1, 0)
-            if max_depth[row, col_r] > depth_val:
+            if max_depth[row, col_r] < d:
                 for channel in range(c):
                     right_img[row, col_r,
                               channel] = left_img[row, col, channel]
-                max_depth[row, col_r] = depth_val
+                max_depth[row, col_r] = d
             cuda.atomic.compare_and_swap(locks[row, col_r], 0, 1)
 
 
@@ -150,7 +141,7 @@ def run_shift_pass_element_wise(left_img, depth, deviation):
     right_cu = cuda.to_device(np.zeros_like(left_img, dtype=left_img.dtype))
     locks = np.ones(depth.shape)[:, :, np.newaxis].astype(np.int32)
     locks_cu = cuda.to_device(locks)
-    max_depth = np.zeros_like(depth, dtype=depth.dtype) + 1
+    max_depth = np.zeros_like(depth, dtype=depth.dtype)
     max_depth_cu = cuda.to_device(max_depth)
 
     threadsperblock = (16, 16)
@@ -158,12 +149,8 @@ def run_shift_pass_element_wise(left_img, depth, deviation):
     blockspergrid_y = np.ceil(w / threadsperblock[1]).astype(np.int32)
     blockspergrid = (blockspergrid_x, blockspergrid_y)
 
-    timer = cuda_timer.Timer()
-    timer.start()
     shift_pass_element_wise[blockspergrid, threadsperblock](
         img_cu, depth_cu, deviation, right_cu, locks_cu, max_depth_cu)
-    timer.stop()
-    # print(f'Time spent in shift_pass_e_wise: {timer.elapsed()}')
     return right_cu
 
 
@@ -171,15 +158,15 @@ def process_image_correct(left_img, depth, deviation):
     left_img = np.array(left_img)
     depth = np.array(depth)
     shifted_row = run_shift_pass_row_wise(left_img, depth, deviation)
-    shifted_row_fixed = run_fix_right(left_img, shifted_row, deviation)
+    shifted_row_fixed = run_fix_holes(left_img, shifted_row, deviation)
     output_img1 = shifted_row_fixed.copy_to_host()
-    return np.hstack([left_img, output_img1])
+    return np.hstack([output_img1, left_img])
 
 
 def process_image_element_wise(left_img, depth, deviation):
     left_img = np.array(left_img)
     depth = np.array(depth)
     shifted_element = run_shift_pass_element_wise(left_img, depth, deviation)
-    shifted_element_fixed = run_fix_right(left_img, shifted_element, deviation)
+    shifted_element_fixed = run_fix_holes(left_img, shifted_element, deviation)
     output_img2 = shifted_element_fixed.copy_to_host()
-    return np.hstack([left_img, output_img2])
+    return np.hstack([output_img2, left_img])

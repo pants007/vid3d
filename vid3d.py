@@ -19,10 +19,14 @@ def parseArguments():
                         help='Optional output directory path')
     parser.add_argument('-d', type=float, nargs='?', default=4.0,
                         help='Determines how strong the 3D effect is')
+    parser.add_argument('--quality', type=str, default="medium",
+                        choices=['lowest', 'low', 'medium', 'high', 'highest'])
     parser.add_argument('--sample_rate', type=float, nargs='?', default=30.0,
                         help='The FPS of the output video.')
     parser.add_argument('--save-depth', action="store_true",
                         help='replaces the right-eye view with the generated depth map')
+    parser.add_argument('--reprocess', action='store_true',
+                        help='Reprocess all input files, regardless of whether a stereo conversion is found in ./output')
     args = parser.parse_args()
     return args
 
@@ -48,9 +52,12 @@ def get_file_lists(directory):
                     stereo_file = os.path.join(
                         './output', f'{filename}_stereo{extension}')
                     if os.path.exists(stereo_file):
-                        print(f'Found {stereo_file}. Skipping')
-                        found = True
-                        break
+                        if args.reprocess:
+                            os.remove(stereo_file)
+                        else:
+                            print(f'Found {stereo_file}. Skipping')
+                            found = True
+                            break
                 if not found:
                     if ext in IMAGE_EXTS:
                         img_list.append(file)
@@ -62,13 +69,21 @@ def get_file_lists(directory):
 
 if __name__ == '__main__':
     args = parseArguments()
-    model = DepthModel('MiDaS', 'DPT_Hybrid')
+    # Best quality / terrible speed: ZoeDepth_N
+    # Good quality / decent speed: DPT_Swin_L_384
+    # Decent quality / good speed: DPT_SwinV2_T_256
+    # Bad quality / best speed: MiDaS_small
+    model = DepthModel('ZoeDepth', '') if args.quality == 'highest' else \
+        DepthModel('MiDaS', 'DPT_Swin_L_384') if args.quality == 'high' else \
+        DepthModel('MiDaS', 'DPT_SwinV2_T_256') if args.quality == 'medium' else \
+        DepthModel('MiDaS', 'MiDaS_small') if args.quality == 'low' else \
+        DepthModel('MiDaS', 'DPT_LeViT_224')
     imgs, vids = get_file_lists('./input')
     print(f'images: {imgs}\nvideos: {vids}')
 
     print('Processing images now..')
     for file in imgs:
-        print(f'Processing {file}..')
+        print(f'\t{file}..')
         img_path = f'./input/{file}'
         filename, ext = os.path.splitext(file)
         image = Image.open(img_path)
@@ -92,12 +107,12 @@ if __name__ == '__main__':
 
     print('Processing videos now..')
     for file in vids:
-        print(f'Processing {file}..')
+        print(f'\t{file}..')
         video_path = f'./input/{file}'
 
         width, height, framerate = get_video_metadata(video_path)
         filename, ext = os.path.splitext(file)
-        output_filename = f'{filename}_stereo{ext}'
+        output_filename = f'{filename}_stereo.mp4'
         output_file = f'./output/{output_filename}'
         print(f'Beginning to process {output_file}..')
         command_in = [
@@ -134,31 +149,27 @@ if __name__ == '__main__':
         try:
             while True:
                 # Read one frame's worth of data from the input pipe
-                raw_image = pipe_in.stdout.read(width * height * 3 * 5)
+                raw_image = pipe_in.stdout.read(width * height * 3)
                 if not raw_image:
                     break
 
                 # Convert the raw image data to a numpy array
-                images = np.frombuffer(raw_image, dtype='uint8').reshape(
-                    [5, height, width, 3]).copy()
-                lr_frames = []
+                image = np.frombuffer(raw_image, dtype='uint8').reshape(
+                    [height, width, 3]).copy()
                 # ignore this for now. it's just extra processing that isn't related to my width-doubling woes.
                 # Do some image processing here...
-                for i in range(images.shape[0]):
-                    image = images[i]
-                    depth_numpy = model.infer(image)
-                    if not args.save_depth:
-                        lr_frame = process_image(
-                            image, depth_numpy, args.d)
-                        lr_frames.append(lr_frame)
-                    else:
-                        img_np = np.array(image)
-                        depth_numpy = (depth_numpy * 255).astype(np.uint8)
-                        depth = np.stack((depth_numpy,)*3, axis=-1)
-                        lr_frames.append(np.hstack((img_np, depth)))
-                lr_frames = np.array(lr_frames)
+                depth_numpy = model.infer(image)
+                lr_frame = np.zeros_like((height, width * 2, 3))
+                if not args.save_depth:
+                    lr_frame = process_image(
+                        image, depth_numpy, args.d)
+                else:
+                    img_np = np.array(image)
+                    depth_numpy = (depth_numpy * 255).astype(np.uint8)
+                    depth = np.stack((depth_numpy,)*3, axis=-1)
+                    lr_frame = np.hstack((img_np, depth))
                 # Write the processed frame to the output pipe
-                pipe_out.stdin.write(lr_frames.astype(np.uint8).tobytes())
+                pipe_out.stdin.write(lr_frame.astype(np.uint8).tobytes())
                 # pipe_out.stdin.write(processed_image.astype(np.uint8).tobytes())
         except KeyboardInterrupt:
             pipe_out.stdin.flush()
