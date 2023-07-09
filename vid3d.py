@@ -10,18 +10,18 @@ import PIL.Image as Image
 VIDEO_EXTS = ['.mp4', '.webm']
 IMAGE_EXTS = ['.png', '.jpg', '.jpeg']
 EXTENSIONS = tuple(VIDEO_EXTS + IMAGE_EXTS)
-process_image = process_image_element_wise
+process_image = process_image_correct
 
 
 def parseArguments():
     parser = argparse.ArgumentParser(description='vid3d.py')
     parser.add_argument('--output_dir', type=str, nargs='?', default='./output/',
                         help='Optional output directory path')
-    parser.add_argument('--divergence', type=float, nargs='?', default=4.0,
+    parser.add_argument('-d', type=float, nargs='?', default=4.0,
                         help='Determines how strong the 3D effect is')
     parser.add_argument('--sample_rate', type=float, nargs='?', default=30.0,
                         help='The FPS of the output video.')
-    parser.add_argument('--save-depth', type=bool, nargs="?", default=False,
+    parser.add_argument('--save-depth', action="store_true",
                         help='replaces the right-eye view with the generated depth map')
     args = parser.parse_args()
     return args
@@ -41,10 +41,8 @@ def get_file_lists(directory):
     img_list, vid_list = [], []
     for root, dirs, files in os.walk(directory):
         for file in files:
-            print(file)
             if file.endswith(EXTENSIONS):
                 filename, ext = os.path.splitext(file)
-                print(ext)
                 found = False
                 for extension in EXTENSIONS:
                     stereo_file = os.path.join(
@@ -64,7 +62,7 @@ def get_file_lists(directory):
 
 if __name__ == '__main__':
     args = parseArguments()
-    model = DepthModel('ZoeDepth', 'MiDaS_small')
+    model = DepthModel('MiDaS', 'DPT_Hybrid')
     imgs, vids = get_file_lists('./input')
     print(f'images: {imgs}\nvideos: {vids}')
 
@@ -77,11 +75,20 @@ if __name__ == '__main__':
         # ignore this for now. it's just extra processing that isn't related to my width-doubling woes.
         # Do some image processing here...
         depth_numpy = model.infer(image)
-        lr_frame = process_image(
-            image, depth_numpy, args.divergence)
-        output_filename = f'{filename}_stereo.png'
-        output_file = f'./output/{output_filename}'
-        Image.fromarray(lr_frame, "RGB").save(output_file)
+        if not args.save_depth:
+            lr_frame = process_image(
+                image, depth_numpy, args.d)
+            output_filename = f'{filename}_stereo.png'
+            output_file = f'./output/{output_filename}'
+            Image.fromarray(lr_frame, "RGB").save(output_file)
+        else:
+            img_np = np.array(image)
+            depth_numpy = (depth_numpy * 255).astype(np.uint8)
+            depth = np.stack((depth_numpy,)*3, axis=-1)
+            lr_frame = np.hstack((img_np, depth))
+            output_filename = f'{filename}_stereo.png'
+            output_file = f'./output/{output_filename}'
+            Image.fromarray(lr_frame, "RGB").save(output_file)
 
     print('Processing videos now..')
     for file in vids:
@@ -142,7 +149,7 @@ if __name__ == '__main__':
                     depth_numpy = model.infer(image)
                     if not args.save_depth:
                         lr_frame = process_image(
-                            image, depth_numpy, args.divergence)
+                            image, depth_numpy, args.d)
                         lr_frames.append(lr_frame)
                     else:
                         img_np = np.array(image)
