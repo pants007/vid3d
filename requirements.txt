@@ -3,3 +3,5 @@ ffmpeg-python>=0.2
 numpy>=1.23
 cuda-python>=12.1
 cupy-cuda12x>=12.1
+timm<=0.6.7
+opencv-python>=4.8
